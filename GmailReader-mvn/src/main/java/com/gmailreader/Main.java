@@ -11,7 +11,7 @@ public class Main {
         System.out.println("Enter the Querry (like subject:interview)");
 
         String query = scn.nextLine();
-        HashMap<String, String> data = objGmailSer.getGmailData(query);
+        HashMap data = objGmailSer.getGmailData(query);
         System.out.println(data.get("subject"));
         System.out.println("------- Body ---------");
         System.out.println(data.get("body"));

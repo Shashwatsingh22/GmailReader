@@ -1,17 +1,8 @@
 package com.gmailreader;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.security.GeneralSecurityException;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp;
@@ -25,11 +16,8 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.GmailScopes;
-import com.google.api.services.gmail.model.ListMessagesResponse;
-import com.google.api.services.gmail.model.Message;
+import com.google.api.services.gmail.model.*;
 import com.google.api.services.gmail.model.Thread;
-
-import io.restassured.path.json.JsonPath;
 
 public class GmailSer {
     private static final String APPLICATION_NAME = "EmailReader";
@@ -83,7 +71,9 @@ public class GmailSer {
     public static List<Message> listMessagesMatchingQuery(Gmail service, String userId,
                                                           String query) throws IOException {
         ListMessagesResponse response = service.users().messages().list(userId).setQ(query).execute();
+
         List<Message> messages = new ArrayList<Message>();
+
         while (response.getMessages() != null) {
             messages.addAll(response.getMessages());
             if (response.getNextPageToken() != null) {
@@ -102,31 +92,74 @@ public class GmailSer {
         return message;
     }
 
-    public HashMap<String, String> getGmailData(String query) {
+    public HashMap getGmailData(String query) {
         try {
             Gmail service = getService();
             List<Message> messages = listMessagesMatchingQuery(service, USER_ID, query);
             Message message = getMessage(service, USER_ID, messages, 0);
-            JsonPath jp = new JsonPath(message.toString());
-            String subject = jp.getString("payload.headers.find { it.name == 'Subject' }.value");
-            String body = new String(Base64.getDecoder().decode(jp.getString("payload.parts[0].body.data")));
-            String link = null;
-            String arr[] = body.split("\n");
-            for(String s: arr) {
-                s = s.trim();
-                if(s.startsWith("http") || s.startsWith("https")) {
-                    link = s.trim();
+
+            int sizeOfParts = message.getPayload().getParts().size();
+            //List<MessagePart> = message.getPayload().getParts();
+
+
+
+            HashMap hashMap = new HashMap<>();
+            HashMap hashMapPDF = new HashMap<>();
+
+            hashMap.put("messageID",message.getId());
+            for(int i=0;i<sizeOfParts;i++)
+            {
+                String contentType = message.getPayload().getParts().get(i).getMimeType();
+                if(Objects.equals(contentType, "multipart/alternative"))
+                {
+                    //
+                }
+                else if(Objects.equals(contentType, "application/pdf"))
+                {
+                    hashMapPDF.put("fileName",message.getPayload().getParts().get(i).getFilename());
+                    hashMapPDF.put("attachID",message.getPayload().getParts().get(i).getBody().getAttachmentId());
+                    hashMapPDF.put("sizeOfAttach",message.getPayload().getParts().get(i).getBody().getSize());
+
+                    hashMap.put("pdfInfo",hashMapPDF);
                 }
             }
-            HashMap<String, String> hm = new HashMap<String, String>();
-            hm.put("subject", subject);
-            hm.put("body", body);
-            hm.put("link", link);
-            return hm;
+
+            MessagePartBody fileData = service.users().messages().attachments().get(USER_ID, (String) hashMap.get("messageID"), (String) hashMapPDF.get("attachID")).execute();
+
+            System.out.println(fileData);
+            createFile(fileData.getData(), (String) hashMapPDF.get("fileName"));
+
+          return hashMap;
         } catch (Exception e) {
             System.out.println("email not found....");
             throw new RuntimeException(e);
         }
+    }
+    public void createFile(String filedata, String fileName) throws IOException {
+        String SRC = System.getProperty("user.dir") +  "/" + fileName;
+//        String DESTINATION = System.getProperty("user.dir") + "/" + "decrypt_" + fileName;
+//        String USER_PASSWORD = "SHASHWAT";
+        File file =  new File(SRC);
+
+        file.getParentFile().mkdirs();
+        file.createNewFile();
+
+        try ( FileOutputStream fos = new FileOutputStream(file, false);) {
+
+            filedata = filedata.replace("-","+");
+            filedata=filedata.replace("_","/");
+            System.out.println(filedata);
+
+
+            byte[] decoder = Base64.getDecoder().decode(filedata);
+
+            fos.write(decoder);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
     }
 
     public int getTotalCountOfMails() {
